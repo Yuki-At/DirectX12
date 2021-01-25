@@ -1,10 +1,25 @@
 #include <d3d12.h>
+#include <dxgi1_6.h>
+#include <wrl.h>
+
+using namespace Microsoft::WRL;
 
 #define WIDTH (640)
 #define HEIGHT (480)
 
+#define ReturnIfFailed(result) if (FAILED(result)) {\
+            TCHAR buffer[256];\
+            wsprintf(buffer, TEXT("!ERROR!\n%s:[%d]\n"), __FUNCTIONW__, __LINE__);\
+            OutputDebugString(buffer);\
+            return result;\
+        }
+
+// Win32 objects.
 HINSTANCE hInstance;
 HWND hWindow;
+
+// Pipeline objects.
+ComPtr<ID3D12Device> device;
 
 HRESULT InitWindow();
 HRESULT LoadPipeline();
@@ -88,6 +103,19 @@ HRESULT InitWindow() {
 }
 
 HRESULT LoadPipeline() {
+    ComPtr<IDXGIFactory4> factory4;
+    ReturnIfFailed(CreateDXGIFactory2(0, IID_PPV_ARGS(&factory4)));
+
+    ComPtr<IDXGIAdapter1> adapter;
+    ComPtr<IDXGIFactory6> factory6;
+    if (SUCCEEDED(factory4->QueryInterface(IID_PPV_ARGS(&factory6)))) {
+        factory6->EnumAdapterByGpuPreference(0, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS(&adapter));
+    } else {
+        factory4->EnumAdapters1(0, &adapter);
+    }
+
+    ReturnIfFailed(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device)));
+
     return S_OK;
 }
 
