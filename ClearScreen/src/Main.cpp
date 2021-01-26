@@ -20,6 +20,8 @@ HWND hWindow;
 
 // Pipeline objects.
 ComPtr<ID3D12Device> device;
+ComPtr<ID3D12CommandQueue> commandQueue;
+ComPtr<IDXGISwapChain> swapChain;
 
 HRESULT InitWindow();
 HRESULT LoadPipeline();
@@ -115,6 +117,22 @@ HRESULT LoadPipeline() {
     }
 
     ReturnIfFailed(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device)));
+
+    // Command Queue
+    {
+        D3D12_COMMAND_QUEUE_DESC desc;
+        desc.Type     = D3D12_COMMAND_LIST_TYPE_DIRECT;
+        desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
+        desc.Flags    = D3D12_COMMAND_QUEUE_FLAG_NONE;
+        desc.NodeMask = 0;
+        ReturnIfFailed(device->CreateCommandQueue(&desc, IID_PPV_ARGS(&commandQueue)));
+    }
+
+    // Swap Chain
+    {
+        DXGI_SWAP_CHAIN_DESC1 desc;
+
+    }
 
     return S_OK;
 }
