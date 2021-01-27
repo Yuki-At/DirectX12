@@ -122,7 +122,7 @@ HRESULT InitWindow() {
 HRESULT InitDirectX() {
     UINT factoryFlags = 0;
 
-#if defined(DEBUG) | defined(_DEBUG)
+#ifdef _DEBUG
     {
         ComPtr<ID3D12Debug> debug;
         if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug)))) {
