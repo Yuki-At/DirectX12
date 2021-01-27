@@ -2,14 +2,18 @@
 #include <dxgi1_6.h>
 #include <wrl.h>
 
-using namespace Microsoft::WRL;
+using Microsoft::WRL::ComPtr;
 
-#define ReturnIfFailed(result) if (FAILED(result)) {\
-            TCHAR buffer[256];\
-            wsprintf(buffer, TEXT("!ERROR!\n%s:[%d]\n"), __FUNCTIONW__, __LINE__);\
-            OutputDebugString(buffer);\
-            return result;\
-        }
+inline void ThrowIfFailed(HRESULT hr, LPCWSTR file, int line) {
+    if (FAILED(hr)) {
+        TCHAR buffer[256];
+        wsprintf(buffer, TEXT("\nFILE:[%s]\nLINE:[%d]\n\n"), file, line);
+        OutputDebugString(buffer);
+        throw hr;
+    }
+}
+
+#define ThrowIfFailed(hr) ThrowIfFailed(hr, __FILEW__, __LINE__);
 
 constexpr UINT Width = 640;
 constexpr UINT Height = 480;
@@ -30,12 +34,19 @@ ComPtr<ID3D12CommandAllocator> commandAllocator;
 ComPtr<ID3D12GraphicsCommandList> commandList;
 
 // Synchronization objects.
+ComPtr<ID3D12Fence> fence;
+UINT64 fenceValue;
+HANDLE fenceEvent;
 UINT frameIndex;
+
+bool upping[] = { true, true, true };
+float color[] = { 1.0f, 0.5f, 0.0f, 1.0f };
 
 HRESULT InitWindow();
 HRESULT InitDirectX();
-HRESULT OnUpdate();
-HRESULT OnRender();
+void OnUpdate();
+void OnRender();
+void WaitForPrevFrame();
 LRESULT CALLBACK WindowProcedure(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int nCmdShow) {
@@ -122,7 +133,7 @@ HRESULT InitDirectX() {
 #endif
 
     ComPtr<IDXGIFactory4> factory4;
-    ReturnIfFailed(CreateDXGIFactory2(factoryFlags, IID_PPV_ARGS(&factory4)));
+    ThrowIfFailed(CreateDXGIFactory2(factoryFlags, IID_PPV_ARGS(&factory4)));
 
     ComPtr<IDXGIAdapter1> adapter;
     ComPtr<IDXGIFactory6> factory6;
@@ -132,7 +143,7 @@ HRESULT InitDirectX() {
         factory4->EnumAdapters1(0, &adapter);
     }
 
-    ReturnIfFailed(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device)));
+    ThrowIfFailed(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device)));
 
     // Command Queue
     {
@@ -141,7 +152,7 @@ HRESULT InitDirectX() {
         desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
         desc.Flags    = D3D12_COMMAND_QUEUE_FLAG_NONE;
         desc.NodeMask = 0;
-        ReturnIfFailed(device->CreateCommandQueue(&desc, IID_PPV_ARGS(&commandQueue)));
+        ThrowIfFailed(device->CreateCommandQueue(&desc, IID_PPV_ARGS(&commandQueue)));
     }
 
     // Swap Chain
@@ -161,7 +172,7 @@ HRESULT InitDirectX() {
         desc.Flags              = 0;
 
         ComPtr<IDXGISwapChain1> swapChain1;
-        ReturnIfFailed(factory4->CreateSwapChainForHwnd(
+        ThrowIfFailed(factory4->CreateSwapChainForHwnd(
             commandQueue.Get(),
             hWindow,
             &desc,
@@ -170,7 +181,7 @@ HRESULT InitDirectX() {
             &swapChain1
         ));
 
-        ReturnIfFailed(swapChain1.As(&swapChain));
+        ThrowIfFailed(swapChain1.As(&swapChain));
         frameIndex = swapChain->GetCurrentBackBufferIndex();
     }
 
@@ -182,7 +193,7 @@ HRESULT InitDirectX() {
         desc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
         desc.NodeMask       = 0;
 
-        ReturnIfFailed(device->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&rtvHeap)));
+        ThrowIfFailed(device->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&rtvHeap)));
 
         rtvDescriptorSize = device->GetDescriptorHandleIncrementSize(desc.Type);
     }
@@ -192,7 +203,7 @@ HRESULT InitDirectX() {
         D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = rtvHeap->GetCPUDescriptorHandleForHeapStart();
 
         for (UINT i = 0; i < FrameCount; i++) {
-            ReturnIfFailed(swapChain->GetBuffer(i, IID_PPV_ARGS(&renderTargets[i])));
+            ThrowIfFailed(swapChain->GetBuffer(i, IID_PPV_ARGS(&renderTargets[i])));
             device->CreateRenderTargetView(renderTargets[i].Get(), nullptr, rtvHandle);
 
             rtvHandle.ptr += rtvDescriptorSize;
@@ -200,38 +211,87 @@ HRESULT InitDirectX() {
     }
 
     // Command Allocator
-    ReturnIfFailed(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&commandAllocator)));
+    ThrowIfFailed(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&commandAllocator)));
 
     // Command List
-    ReturnIfFailed(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, commandAllocator.Get(), nullptr, IID_PPV_ARGS(&commandList)));
-    ReturnIfFailed(commandList->Close());
+    ThrowIfFailed(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, commandAllocator.Get(), nullptr, IID_PPV_ARGS(&commandList)));
+    ThrowIfFailed(commandList->Close());
+
+    // Fence
+    ThrowIfFailed(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)));
+
+    fenceEvent = CreateEvent(nullptr, false, false, nullptr);
+    if (!fenceEvent) {
+        ThrowIfFailed(HRESULT_FROM_WIN32(GetLastError()));
+    }
 
     return S_OK;
 }
 
-HRESULT OnUpdate() {
-    return S_OK;
+void OnUpdate() {
+    for (int i = 0; i < 3; i++) {
+        color[i] += upping[i] ? 0.01f : -0.01f;
+        if (color[i] < 0.0f) {
+            upping[i] = true;
+        } else if (color[i] > 1.0f) {
+            upping[i] = false;
+        }
+    }
 }
 
-HRESULT OnRender() {
-    ReturnIfFailed(commandAllocator->Reset());
+void OnRender() {
+    ThrowIfFailed(commandAllocator->Reset());
 
-    ReturnIfFailed(commandList->Reset(commandAllocator.Get(), nullptr));
+    ThrowIfFailed(commandList->Reset(commandAllocator.Get(), nullptr));
+
+    // Resource Barrier
+    {
+        D3D12_RESOURCE_BARRIER barrier;
+        barrier.Type  = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+        barrier.Transition.pResource   = renderTargets[frameIndex].Get();
+        barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
+        barrier.Transition.StateAfter  = D3D12_RESOURCE_STATE_RENDER_TARGET;
+        commandList->ResourceBarrier(1, &barrier);
+    }
 
     D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = rtvHeap->GetCPUDescriptorHandleForHeapStart();
-    rtvHandle.ptr += SIZE_T(INT64(rtvDescriptorSize) * INT64(swapChain->GetCurrentBackBufferIndex()));
+    rtvHandle.ptr += SIZE_T(INT64(rtvDescriptorSize) * INT64(frameIndex));
 
-    float color[] = { 1.0f, 0.0f, 0.0f, 1.0f };
     commandList->ClearRenderTargetView(rtvHandle, color, 0, nullptr);
 
-    ReturnIfFailed(commandList->Close());
+    // Resource Barrier
+    {
+        D3D12_RESOURCE_BARRIER barrier;
+        barrier.Type  = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+        barrier.Transition.pResource   = renderTargets[frameIndex].Get();
+        barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+        barrier.Transition.StateAfter  = D3D12_RESOURCE_STATE_PRESENT;
+        commandList->ResourceBarrier(1, &barrier);
+    }
+
+    ThrowIfFailed(commandList->Close());
 
     ID3D12CommandList *commandLists[] = { commandList.Get() };
     commandQueue->ExecuteCommandLists(_countof(commandLists), commandLists);
 
-    ReturnIfFailed(swapChain->Present(1, 0));
+    ThrowIfFailed(swapChain->Present(1, 0));
 
-    return S_OK;
+    WaitForPrevFrame();
+}
+
+void WaitForPrevFrame() {
+    ThrowIfFailed(commandQueue->Signal(fence.Get(), ++fenceValue));
+
+    if (fence->GetCompletedValue() < fenceValue) {
+        ThrowIfFailed(fence->SetEventOnCompletion(fenceValue, fenceEvent));
+        WaitForSingleObject(fenceEvent, INFINITE);
+    }
+
+    frameIndex = swapChain->GetCurrentBackBufferIndex();
 }
 
 LRESULT CALLBACK WindowProcedure(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -241,8 +301,8 @@ LRESULT CALLBACK WindowProcedure(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
         return 0;
 
     case WM_PAINT:
-        if (FAILED(OnUpdate())) SendMessage(hwnd, WM_DESTROY, 0, 0);
-        if (FAILED(OnRender())) SendMessage(hwnd, WM_DESTROY, 0, 0);
+        OnUpdate();
+        OnRender();
         return 0;
     }
 
