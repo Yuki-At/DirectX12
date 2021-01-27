@@ -23,13 +23,19 @@ HWND hWindow;
 ComPtr<ID3D12Device> device;
 ComPtr<ID3D12CommandQueue> commandQueue;
 ComPtr<IDXGISwapChain4> swapChain;
+ComPtr<ID3D12DescriptorHeap> rtvHeap;
+UINT rtvDescriptorSize;
+ComPtr<ID3D12Resource> renderTargets[FrameCount];
+ComPtr<ID3D12CommandAllocator> commandAllocator;
+ComPtr<ID3D12GraphicsCommandList> commandList;
 
+// Synchronization objects.
 UINT frameIndex;
 
 HRESULT InitWindow();
 HRESULT InitDirectX();
-void OnUpdate();
-void OnRender();
+HRESULT OnUpdate();
+HRESULT OnRender();
 LRESULT CALLBACK WindowProcedure(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int nCmdShow) {
@@ -141,18 +147,18 @@ HRESULT InitDirectX() {
     // Swap Chain
     {
         DXGI_SWAP_CHAIN_DESC1 desc;
-        desc.Width = 0;
-        desc.Height = 0;
-        desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-        desc.Stereo = false;
-        desc.SampleDesc.Count = 1;
+        desc.Width              = 0;
+        desc.Height             = 0;
+        desc.Format             = DXGI_FORMAT_R8G8B8A8_UNORM;
+        desc.Stereo             = false;
+        desc.SampleDesc.Count   = 1;
         desc.SampleDesc.Quality = 0;
-        desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-        desc.BufferCount = FrameCount;
-        desc.Scaling = DXGI_SCALING_STRETCH;
-        desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-        desc.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
-        desc.Flags = 0;
+        desc.BufferUsage        = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+        desc.BufferCount        = FrameCount;
+        desc.Scaling            = DXGI_SCALING_STRETCH;
+        desc.SwapEffect         = DXGI_SWAP_EFFECT_FLIP_DISCARD; // DXGI_SWAP_EFFECT_DISCARD Ç∆ä‘à·Ç¶Ç»Ç¢ÇÊÇ§Ç…ÅIÅIÅI
+        desc.AlphaMode          = DXGI_ALPHA_MODE_UNSPECIFIED;
+        desc.Flags              = 0;
 
         ComPtr<IDXGISwapChain1> swapChain1;
         ReturnIfFailed(factory4->CreateSwapChainForHwnd(
@@ -168,14 +174,65 @@ HRESULT InitDirectX() {
         frameIndex = swapChain->GetCurrentBackBufferIndex();
     }
 
+    // Descriptor Heap for RTV
+    {
+        D3D12_DESCRIPTOR_HEAP_DESC desc;
+        desc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+        desc.NumDescriptors = FrameCount;
+        desc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+        desc.NodeMask       = 0;
 
+        ReturnIfFailed(device->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&rtvHeap)));
+
+        rtvDescriptorSize = device->GetDescriptorHandleIncrementSize(desc.Type);
+    }
+
+    // Render Target View (RTV)
+    {
+        D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = rtvHeap->GetCPUDescriptorHandleForHeapStart();
+
+        for (UINT i = 0; i < FrameCount; i++) {
+            ReturnIfFailed(swapChain->GetBuffer(i, IID_PPV_ARGS(&renderTargets[i])));
+            device->CreateRenderTargetView(renderTargets[i].Get(), nullptr, rtvHandle);
+
+            rtvHandle.ptr += rtvDescriptorSize;
+        }
+    }
+
+    // Command Allocator
+    ReturnIfFailed(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&commandAllocator)));
+
+    // Command List
+    ReturnIfFailed(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, commandAllocator.Get(), nullptr, IID_PPV_ARGS(&commandList)));
+    ReturnIfFailed(commandList->Close());
 
     return S_OK;
 }
 
-void OnUpdate() { }
+HRESULT OnUpdate() {
+    return S_OK;
+}
 
-void OnRender() { }
+HRESULT OnRender() {
+    ReturnIfFailed(commandAllocator->Reset());
+
+    ReturnIfFailed(commandList->Reset(commandAllocator.Get(), nullptr));
+
+    D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = rtvHeap->GetCPUDescriptorHandleForHeapStart();
+    rtvHandle.ptr += SIZE_T(INT64(rtvDescriptorSize) * INT64(swapChain->GetCurrentBackBufferIndex()));
+
+    float color[] = { 1.0f, 0.0f, 0.0f, 1.0f };
+    commandList->ClearRenderTargetView(rtvHandle, color, 0, nullptr);
+
+    ReturnIfFailed(commandList->Close());
+
+    ID3D12CommandList *commandLists[] = { commandList.Get() };
+    commandQueue->ExecuteCommandLists(_countof(commandLists), commandLists);
+
+    ReturnIfFailed(swapChain->Present(1, 0));
+
+    return S_OK;
+}
 
 LRESULT CALLBACK WindowProcedure(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
@@ -184,8 +241,8 @@ LRESULT CALLBACK WindowProcedure(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
         return 0;
 
     case WM_PAINT:
-        OnUpdate();
-        OnRender();
+        if (FAILED(OnUpdate())) SendMessage(hwnd, WM_DESTROY, 0, 0);
+        if (FAILED(OnRender())) SendMessage(hwnd, WM_DESTROY, 0, 0);
         return 0;
     }
 
