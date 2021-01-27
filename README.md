@@ -1,4 +1,9 @@
 # DirectX12
 
 ## Overview
-This repository is to learn DirectX12 programming.
+DirectX12 を勉強するためのリポジトリです。
+
+## Remarks
+できるだけ最小のファイル構成にするように努めるから、もしかしたら勉強用に使えるかもね～  
+その時は初心者同士頑張ろー！！！  
+コードが汚いのは許してね(*'▽')
