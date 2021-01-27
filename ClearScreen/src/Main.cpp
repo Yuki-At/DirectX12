@@ -4,15 +4,16 @@
 
 using namespace Microsoft::WRL;
 
-#define WIDTH (640)
-#define HEIGHT (480)
-
 #define ReturnIfFailed(result) if (FAILED(result)) {\
             TCHAR buffer[256];\
             wsprintf(buffer, TEXT("!ERROR!\n%s:[%d]\n"), __FUNCTIONW__, __LINE__);\
             OutputDebugString(buffer);\
             return result;\
         }
+
+constexpr UINT Width = 640;
+constexpr UINT Height = 480;
+constexpr UINT FrameCount = 2;
 
 // Win32 objects.
 HINSTANCE hInstance;
@@ -21,11 +22,12 @@ HWND hWindow;
 // Pipeline objects.
 ComPtr<ID3D12Device> device;
 ComPtr<ID3D12CommandQueue> commandQueue;
-ComPtr<IDXGISwapChain> swapChain;
+ComPtr<IDXGISwapChain4> swapChain;
+
+UINT frameIndex;
 
 HRESULT InitWindow();
-HRESULT LoadPipeline();
-HRESULT LoadAssets();
+HRESULT InitDirectX();
 void OnUpdate();
 void OnRender();
 LRESULT CALLBACK WindowProcedure(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -39,12 +41,8 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
         return -10;
     }
 
-    if (FAILED(LoadPipeline())) {
+    if (FAILED(InitDirectX())) {
         return -11;
-    }
-
-    if (FAILED(LoadAssets())) {
-        return -12;
     }
 
     ShowWindow(hWindow, nCmdShow);
@@ -95,8 +93,8 @@ HRESULT InitWindow() {
         GetWindowRect(hWindow, &rw);
         GetClientRect(hWindow, &rc);
 
-        width = (rw.right - rw.left) - (rc.right - rc.left) + WIDTH;
-        height = (rw.bottom - rw.top) - (rc.bottom - rc.top) + HEIGHT;
+        width = (rw.right - rw.left) - (rc.right - rc.left) + Width;
+        height = (rw.bottom - rw.top) - (rc.bottom - rc.top) + Height;
 
         SetWindowPos(hWindow, HWND_TOP, (rd.right - width) / 2, (rd.bottom - height) / 2, width, height, 0);
     }
@@ -104,9 +102,21 @@ HRESULT InitWindow() {
     return S_OK;
 }
 
-HRESULT LoadPipeline() {
+HRESULT InitDirectX() {
+    UINT factoryFlags = 0;
+
+#if defined(DEBUG) | defined(_DEBUG)
+    {
+        ComPtr<ID3D12Debug> debug;
+        if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug)))) {
+            debug->EnableDebugLayer();
+            factoryFlags |= DXGI_CREATE_FACTORY_DEBUG;
+        }
+    }
+#endif
+
     ComPtr<IDXGIFactory4> factory4;
-    ReturnIfFailed(CreateDXGIFactory2(0, IID_PPV_ARGS(&factory4)));
+    ReturnIfFailed(CreateDXGIFactory2(factoryFlags, IID_PPV_ARGS(&factory4)));
 
     ComPtr<IDXGIAdapter1> adapter;
     ComPtr<IDXGIFactory6> factory6;
@@ -131,13 +141,35 @@ HRESULT LoadPipeline() {
     // Swap Chain
     {
         DXGI_SWAP_CHAIN_DESC1 desc;
+        desc.Width = 0;
+        desc.Height = 0;
+        desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        desc.Stereo = false;
+        desc.SampleDesc.Count = 1;
+        desc.SampleDesc.Quality = 0;
+        desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+        desc.BufferCount = FrameCount;
+        desc.Scaling = DXGI_SCALING_STRETCH;
+        desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+        desc.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
+        desc.Flags = 0;
 
+        ComPtr<IDXGISwapChain1> swapChain1;
+        ReturnIfFailed(factory4->CreateSwapChainForHwnd(
+            commandQueue.Get(),
+            hWindow,
+            &desc,
+            nullptr,
+            nullptr,
+            &swapChain1
+        ));
+
+        ReturnIfFailed(swapChain1.As(&swapChain));
+        frameIndex = swapChain->GetCurrentBackBufferIndex();
     }
 
-    return S_OK;
-}
 
-HRESULT LoadAssets() {
+
     return S_OK;
 }
 
