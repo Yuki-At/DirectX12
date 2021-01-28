@@ -47,6 +47,13 @@ HRESULT InitDirectX();
 void OnUpdate();
 void OnRender();
 void WaitForPrevFrame();
+D3D12_RESOURCE_BARRIER &GetTransitionBarrier(
+    D3D12_RESOURCE_BARRIER &barrier,
+    ID3D12Resource *pResource,
+    D3D12_RESOURCE_STATES before,
+    D3D12_RESOURCE_STATES after,
+    UINT subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+    D3D12_RESOURCE_BARRIER_FLAGS flags = D3D12_RESOURCE_BARRIER_FLAG_NONE);
 LRESULT CALLBACK WindowProcedure(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int nCmdShow) {
@@ -244,34 +251,21 @@ void OnRender() {
 
     ThrowIfFailed(commandList->Reset(commandAllocator.Get(), nullptr));
 
-    // Resource Barrier
-    {
-        D3D12_RESOURCE_BARRIER barrier;
-        barrier.Type  = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-        barrier.Transition.pResource   = renderTargets[frameIndex].Get();
-        barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-        barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
-        barrier.Transition.StateAfter  = D3D12_RESOURCE_STATE_RENDER_TARGET;
-        commandList->ResourceBarrier(1, &barrier);
-    }
+    D3D12_RESOURCE_BARRIER barrier;
+    commandList->ResourceBarrier(1, &GetTransitionBarrier(
+        barrier, renderTargets[frameIndex].Get(),
+        D3D12_RESOURCE_STATE_PRESENT,
+        D3D12_RESOURCE_STATE_RENDER_TARGET));
 
     D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = rtvHeap->GetCPUDescriptorHandleForHeapStart();
     rtvHandle.ptr += SIZE_T(INT64(rtvDescriptorSize) * INT64(frameIndex));
 
     commandList->ClearRenderTargetView(rtvHandle, color, 0, nullptr);
 
-    // Resource Barrier
-    {
-        D3D12_RESOURCE_BARRIER barrier;
-        barrier.Type  = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-        barrier.Transition.pResource   = renderTargets[frameIndex].Get();
-        barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-        barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
-        barrier.Transition.StateAfter  = D3D12_RESOURCE_STATE_PRESENT;
-        commandList->ResourceBarrier(1, &barrier);
-    }
+    commandList->ResourceBarrier(1, &GetTransitionBarrier(
+        barrier, renderTargets[frameIndex].Get(),
+        D3D12_RESOURCE_STATE_RENDER_TARGET,
+        D3D12_RESOURCE_STATE_PRESENT));
 
     ThrowIfFailed(commandList->Close());
 
@@ -292,6 +286,22 @@ void WaitForPrevFrame() {
     }
 
     frameIndex = swapChain->GetCurrentBackBufferIndex();
+}
+
+D3D12_RESOURCE_BARRIER &GetTransitionBarrier(
+    D3D12_RESOURCE_BARRIER &barrier,
+    ID3D12Resource *pResource,
+    D3D12_RESOURCE_STATES before,
+    D3D12_RESOURCE_STATES after,
+    UINT subresource,
+    D3D12_RESOURCE_BARRIER_FLAGS flags) {
+    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+    barrier.Transition.pResource = pResource;
+    barrier.Transition.Subresource = subresource;
+    barrier.Transition.StateBefore = before;
+    barrier.Transition.StateAfter = after;
+    return barrier;
 }
 
 LRESULT CALLBACK WindowProcedure(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
