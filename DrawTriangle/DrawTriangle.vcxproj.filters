@@ -13,6 +13,9 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
+    <Filter Include="リソース ファイル\シェーダー">
+      <UniqueIdentifier>{1565707b-d689-48d5-80ec-3939c29d072d}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\Main.cpp">
@@ -20,6 +23,11 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <FxCompile Include="src\VertexShader.hlsl" />
+    <FxCompile Include="src\VertexShader.hlsl">
+      <Filter>リソース ファイル\シェーダー</Filter>
+    </FxCompile>
+    <FxCompile Include="src\PixelShader.hlsl">
+      <Filter>リソース ファイル\シェーダー</Filter>
+    </FxCompile>
   </ItemGroup>
 </Project>
