@@ -250,7 +250,7 @@ HRESULT InitDirectX() {
 }
 
 HRESULT InitResource() {
-    // vertex buffer
+    // Vertex Buffer
     {
         XMFLOAT3 vertices[] = {
             {  0.0f,  0.866f, 0.0f },
@@ -275,6 +275,16 @@ HRESULT InitResource() {
             nullptr,
             IID_PPV_ARGS(&vertexBuffer)
         ));
+
+        void *buffer;
+        ThrowIfFailed(vertexBuffer->Map(0, nullptr, &buffer));
+        memcpy(buffer, vertices, sizeof(vertices));
+        vertexBuffer->Unmap(0, nullptr);
+
+        // Vertex Buffer View
+        vbView.BufferLocation = vertexBuffer->GetGPUVirtualAddress();
+        vbView.SizeInBytes = sizeof(vertexBuffer);
+        vbView.StrideInBytes = sizeof(XMFLOAT3);
     }
 
     return S_OK;
