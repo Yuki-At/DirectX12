@@ -19,6 +19,11 @@ inline void ThrowIfFailed(HRESULT hr, LPCWSTR file, int line) {
 #define __FILENAME__ (wcsrchr(__FILEW__, TEXT('\\')) ? wcsrchr(__FILEW__, TEXT('\\')) + 1 : __FILEW__)
 #define ThrowIfFailed(hr) ThrowIfFailed(hr, __FILENAME__, __LINE__);
 
+struct Vertex {
+    XMFLOAT3 position;
+    XMFLOAT2 uv;
+};
+
 constexpr UINT Width = 640;
 constexpr UINT Height = 480;
 constexpr UINT FrameCount = 2;
@@ -333,10 +338,11 @@ HRESULT InitDirectX() {
 HRESULT InitResource() {
     // Vertex Buffer
     {
-        XMFLOAT3 vertices[] = {
-            {  0.0f,  0.433f, 0.0f },
-            {  0.5f, -0.433f, 0.0f },
-            { -0.5f, -0.433f, 0.0f },
+        Vertex vertices[] = {
+            { { -0.5f, -0.5f, 0.0f }, { 0.0f, 1.0f } },
+            { { -0.5f,  0.5f, 0.0f }, { 0.0f, 0.0f } },
+            { {  0.5f, -0.5f, 0.0f }, { 1.0f, 1.0f } },
+            { { -0.5f, -0.5f, 0.0f }, { 1.0f, 0.0f } },
         };
 
         D3D12_HEAP_PROPERTIES properties;
@@ -365,7 +371,7 @@ HRESULT InitResource() {
         // Vertex Buffer View
         vbView.BufferLocation = vertexBuffer->GetGPUVirtualAddress();
         vbView.SizeInBytes = sizeof(vertices);
-        vbView.StrideInBytes = sizeof(XMFLOAT3);
+        vbView.StrideInBytes = sizeof(Vertex);
     }
 
     return S_OK;
