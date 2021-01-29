@@ -334,9 +334,9 @@ HRESULT InitResource() {
     // Vertex Buffer
     {
         XMFLOAT3 vertices[] = {
-            {  0.0f,  0.866f, 0.0f },
-            {  1.0f, -0.866f, 0.0f },
-            { -1.0f, -0.866f, 0.0f },
+            {  0.0f,  0.433f, 0.0f },
+            {  0.5f, -0.433f, 0.0f },
+            { -0.5f, -0.433f, 0.0f },
         };
 
         D3D12_HEAP_PROPERTIES properties;
