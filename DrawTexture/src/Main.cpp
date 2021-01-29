@@ -48,7 +48,9 @@ D3D12_RECT scissorRect;
 
 // Resources.
 ComPtr<ID3D12Resource> vertexBuffer;
+ComPtr<ID3D12Resource> indexBuffer;
 D3D12_VERTEX_BUFFER_VIEW vbView;
+D3D12_INDEX_BUFFER_VIEW ibView;
 
 // Synchronization objects.
 ComPtr<ID3D12Fence> fence;
@@ -339,10 +341,10 @@ HRESULT InitResource() {
     // Vertex Buffer
     {
         Vertex vertices[] = {
-            { { -0.5f, -0.5f, 0.0f }, { 0.0f, 1.0f } },
-            { { -0.5f,  0.5f, 0.0f }, { 0.0f, 0.0f } },
-            { {  0.5f, -0.5f, 0.0f }, { 1.0f, 1.0f } },
-            { { -0.5f, -0.5f, 0.0f }, { 1.0f, 0.0f } },
+            { { -0.5f, -0.5f, 0.0f }, { 0.0f, 1.0f } }, // ¶‰º
+            { { -0.5f,  0.5f, 0.0f }, { 0.0f, 0.0f } }, // ¶ã
+            { {  0.5f, -0.5f, 0.0f }, { 1.0f, 1.0f } }, // ‰E‰º
+            { { -0.5f, -0.5f, 0.0f }, { 1.0f, 0.0f } }, // ‰Eã
         };
 
         D3D12_HEAP_PROPERTIES properties;
@@ -372,6 +374,16 @@ HRESULT InitResource() {
         vbView.BufferLocation = vertexBuffer->GetGPUVirtualAddress();
         vbView.SizeInBytes = sizeof(vertices);
         vbView.StrideInBytes = sizeof(Vertex);
+    }
+
+    // Index Buffer
+    {
+        UINT32 indices[] = {
+            0, 1, 2,
+            2, 1, 3,
+        };
+
+
     }
 
     return S_OK;
