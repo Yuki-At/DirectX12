@@ -1,4 +1,5 @@
 #include <d3d12.h>
+#include <d3dcompiler.h>
 #include <DirectXMath.h>
 #include <dxgi1_6.h>
 #include <wrl.h>
@@ -15,7 +16,7 @@ inline void ThrowIfFailed(HRESULT hr, LPCWSTR file, int line) {
     }
 }
 
-#define __FILENAME__ (wcschr(__FILEW__, TEXT('\\')) ? wcschr(__FILEW__, TEXT('\\')) + 1 : __FILEW__)
+#define __FILENAME__ (wcsrchr(__FILEW__, TEXT('\\')) ? wcsrchr(__FILEW__, TEXT('\\')) + 1 : __FILEW__)
 #define ThrowIfFailed(hr) ThrowIfFailed(hr, __FILENAME__, __LINE__);
 
 constexpr UINT Width = 640;
@@ -35,6 +36,10 @@ UINT rtvDescriptorSize;
 ComPtr<ID3D12Resource> renderTargets[FrameCount];
 ComPtr<ID3D12CommandAllocator> commandAllocator;
 ComPtr<ID3D12GraphicsCommandList> commandList;
+ComPtr<ID3D12RootSignature> rootSignature;
+ComPtr<ID3D12PipelineState> pipelineState;
+D3D12_VIEWPORT viewport;
+D3D12_RECT scissorRect;
 
 // Resources.
 ComPtr<ID3D12Resource> vertexBuffer;
@@ -52,6 +57,8 @@ HRESULT InitResource();
 void OnUpdate();
 void OnRender();
 void WaitForPrevFrame();
+D3D12_BLEND_DESC GetDefaultBlendDesc();
+D3D12_RASTERIZER_DESC GetDefaultRasterizerDesc();
 D3D12_RESOURCE_DESC &GetBufferResourceDesc(
     D3D12_RESOURCE_DESC &desc,
     UINT64 width,
@@ -238,6 +245,80 @@ HRESULT InitDirectX() {
     ThrowIfFailed(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, commandAllocator.Get(), nullptr, IID_PPV_ARGS(&commandList)));
     ThrowIfFailed(commandList->Close());
 
+    // Root Signature
+    {
+        ComPtr<ID3DBlob> rsBlob;
+        D3D12_ROOT_SIGNATURE_DESC desc;
+        desc.NumParameters = 0;
+        desc.pParameters = nullptr;
+        desc.NumStaticSamplers = 0;
+        desc.pStaticSamplers = nullptr;
+        desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+
+        ThrowIfFailed(D3D12SerializeRootSignature(&desc, D3D_ROOT_SIGNATURE_VERSION_1_0, &rsBlob, nullptr));
+        ThrowIfFailed(device->CreateRootSignature(0, rsBlob->GetBufferPointer(), rsBlob->GetBufferSize(), IID_PPV_ARGS(&rootSignature)));
+    }
+
+    // Pipeline State
+    {
+        ComPtr<ID3DBlob> vsBlob;
+        ComPtr<ID3DBlob> psBlob;
+        UINT compileFlags = 0;
+
+#ifdef _DEBUG
+        compileFlags |= D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
+#endif
+
+        ThrowIfFailed(D3DCompileFromFile(TEXT("src/VertexShader.hlsl"), nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE, "Main", "vs_5_0", compileFlags, 0, &vsBlob, nullptr));
+        ThrowIfFailed(D3DCompileFromFile(TEXT("src/PixelShader.hlsl"), nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE, "Main", "ps_5_0", compileFlags, 0, &psBlob, nullptr));
+
+        D3D12_INPUT_ELEMENT_DESC inputLayout[] = {
+            { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
+        };
+
+        D3D12_GRAPHICS_PIPELINE_STATE_DESC desc;
+        desc.pRootSignature = rootSignature.Get();
+        desc.VS = { vsBlob->GetBufferPointer(), vsBlob->GetBufferSize() };
+        desc.PS = { psBlob->GetBufferPointer(), psBlob->GetBufferSize() };
+        desc.DS = { };
+        desc.HS = { };
+        desc.GS = { };
+        desc.StreamOutput = { };
+        desc.BlendState = GetDefaultBlendDesc();
+        desc.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;
+        desc.RasterizerState = GetDefaultRasterizerDesc();
+        desc.DepthStencilState = { };
+        desc.InputLayout = { inputLayout, _countof(inputLayout) };
+        desc.IBStripCutValue = D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED;
+        desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+        desc.NumRenderTargets = 1;
+        for (DXGI_FORMAT &format : desc.RTVFormats) { format = DXGI_FORMAT_UNKNOWN; }
+        desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+        desc.DSVFormat = { };
+        desc.SampleDesc.Count = 1;
+        desc.SampleDesc.Quality = 0;
+        desc.NodeMask = 0;
+        desc.CachedPSO = { };
+        desc.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
+
+        ThrowIfFailed(device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(&pipelineState)));
+    }
+
+    // Viewport & Scissor Rect
+    {
+        viewport.TopLeftX = 0.0f;
+        viewport.TopLeftY = 0.0f;
+        viewport.Width = (float) Width;
+        viewport.Height = (float) Height;
+        viewport.MinDepth = 0.0f;
+        viewport.MaxDepth = 1.0f;
+
+        scissorRect.left = 0;
+        scissorRect.top = 0;
+        scissorRect.right = Width;
+        scissorRect.bottom = Height;
+    }
+
     // Fence
     ThrowIfFailed(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)));
 
@@ -295,7 +376,11 @@ void OnUpdate() { }
 void OnRender() {
     ThrowIfFailed(commandAllocator->Reset());
 
-    ThrowIfFailed(commandList->Reset(commandAllocator.Get(), nullptr));
+    ThrowIfFailed(commandList->Reset(commandAllocator.Get(), pipelineState.Get()));
+
+    commandList->SetGraphicsRootSignature(rootSignature.Get());
+    commandList->RSSetViewports(1, &viewport);
+    commandList->RSSetScissorRects(1, &scissorRect);
 
     D3D12_RESOURCE_BARRIER barrier;
     commandList->ResourceBarrier(1, &GetTransitionBarrier(
@@ -306,8 +391,14 @@ void OnRender() {
     D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = rtvHeap->GetCPUDescriptorHandleForHeapStart();
     rtvHandle.ptr += SIZE_T(INT64(rtvDescriptorSize) * INT64(frameIndex));
 
+    // Set render target.
+    commandList->OMSetRenderTargets(1, &rtvHandle, false, nullptr);
+
     float bgcolor[] = { 0.5f, 0.5f, 0.5f, 1.0f };
     commandList->ClearRenderTargetView(rtvHandle, bgcolor, 0, nullptr);
+    commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    commandList->IASetVertexBuffers(0, 1, &vbView);
+    commandList->DrawInstanced(3, 1, 0, 0);
 
     commandList->ResourceBarrier(1, &GetTransitionBarrier(
         barrier, renderTargets[frameIndex].Get(),
@@ -316,11 +407,14 @@ void OnRender() {
 
     ThrowIfFailed(commandList->Close());
 
+    // Execute commands.
     ID3D12CommandList *commandLists[] = { commandList.Get() };
     commandQueue->ExecuteCommandLists(_countof(commandLists), commandLists);
 
+    // Flip buffers.
     ThrowIfFailed(swapChain->Present(1, 0));
 
+    // Wait for the process to finish.
     WaitForPrevFrame();
 }
 
@@ -333,6 +427,35 @@ void WaitForPrevFrame() {
     }
 
     frameIndex = swapChain->GetCurrentBackBufferIndex();
+}
+
+D3D12_BLEND_DESC GetDefaultBlendDesc() {
+    D3D12_BLEND_DESC desc;
+    desc.AlphaToCoverageEnable = false;
+    desc.IndependentBlendEnable = false;
+    desc.RenderTarget[0] = { };
+    desc.RenderTarget[0].BlendEnable = false;
+    desc.RenderTarget[0].LogicOpEnable = false;
+    desc.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+
+    return desc;
+}
+
+D3D12_RASTERIZER_DESC GetDefaultRasterizerDesc() {
+    D3D12_RASTERIZER_DESC desc;
+    desc.FillMode = D3D12_FILL_MODE_SOLID;
+    desc.CullMode = D3D12_CULL_MODE_FRONT;
+    desc.FrontCounterClockwise = false;
+    desc.DepthBias = D3D12_DEFAULT_DEPTH_BIAS;
+    desc.DepthBiasClamp = D3D12_DEFAULT_DEPTH_BIAS_CLAMP;
+    desc.SlopeScaledDepthBias = D3D12_DEFAULT_SLOPE_SCALED_DEPTH_BIAS;
+    desc.DepthClipEnable = true;
+    desc.MultisampleEnable = false;
+    desc.AntialiasedLineEnable = false;
+    desc.ForcedSampleCount = 0;
+    desc.ConservativeRaster = D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
+
+    return desc;
 }
 
 D3D12_RESOURCE_DESC &GetBufferResourceDesc(
