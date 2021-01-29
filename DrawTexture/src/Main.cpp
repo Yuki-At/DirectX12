@@ -280,7 +280,8 @@ HRESULT InitDirectX() {
         ThrowIfFailed(D3DCompileFromFile(TEXT("src/PixelShader.hlsl"), nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE, "Main", "ps_5_0", compileFlags, 0, &psBlob, nullptr));
 
         D3D12_INPUT_ELEMENT_DESC inputLayout[] = {
-            { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
+            { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+            { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,    0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
         };
 
         D3D12_GRAPHICS_PIPELINE_STATE_DESC desc;
@@ -344,7 +345,7 @@ HRESULT InitResource() {
             { { -0.5f, -0.5f, 0.0f }, { 0.0f, 1.0f } }, // ¶‰º
             { { -0.5f,  0.5f, 0.0f }, { 0.0f, 0.0f } }, // ¶ã
             { {  0.5f, -0.5f, 0.0f }, { 1.0f, 1.0f } }, // ‰E‰º
-            { { -0.5f, -0.5f, 0.0f }, { 1.0f, 0.0f } }, // ‰Eã
+            { {  0.5f,  0.5f, 0.0f }, { 1.0f, 0.0f } }, // ‰Eã
         };
 
         D3D12_HEAP_PROPERTIES properties;
@@ -378,12 +379,38 @@ HRESULT InitResource() {
 
     // Index Buffer
     {
-        UINT32 indices[] = {
+        UINT16 indices[] = {
             0, 1, 2,
             2, 1, 3,
         };
 
+        D3D12_HEAP_PROPERTIES properties;
+        properties.Type                 = D3D12_HEAP_TYPE_UPLOAD;
+        properties.CPUPageProperty      = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
+        properties.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+        properties.CreationNodeMask     = 0;
+        properties.VisibleNodeMask      = 0;
 
+        D3D12_RESOURCE_DESC desc;
+
+        ThrowIfFailed(device->CreateCommittedResource(
+            &properties,
+            D3D12_HEAP_FLAG_NONE,
+            &GetBufferResourceDesc(desc, sizeof(indices)),
+            D3D12_RESOURCE_STATE_GENERIC_READ,
+            nullptr,
+            IID_PPV_ARGS(&indexBuffer)
+        ));
+
+        void *buffer;
+        ThrowIfFailed(indexBuffer->Map(0, nullptr, &buffer));
+        memcpy(buffer, indices, sizeof(indices));
+        indexBuffer->Unmap(0, nullptr);
+
+        // Index Buffer View
+        ibView.BufferLocation = indexBuffer->GetGPUVirtualAddress();
+        ibView.SizeInBytes = sizeof(indices);
+        ibView.Format = DXGI_FORMAT_R16_UINT;
     }
 
     return S_OK;
@@ -416,7 +443,8 @@ void OnRender() {
     commandList->ClearRenderTargetView(rtvHandle, bgcolor, 0, nullptr);
     commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     commandList->IASetVertexBuffers(0, 1, &vbView);
-    commandList->DrawInstanced(3, 1, 0, 0);
+    commandList->IASetIndexBuffer(&ibView);
+    commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
 
     commandList->ResourceBarrier(1, &GetTransitionBarrier(
         barrier, renderTargets[frameIndex].Get(),

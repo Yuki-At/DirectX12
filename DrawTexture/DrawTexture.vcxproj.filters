@@ -30,4 +30,9 @@
       <Filter>リソース ファイル\シェーダー</Filter>
     </FxCompile>
   </ItemGroup>
+  <ItemGroup>
+    <None Include="src\Header.hlsli">
+      <Filter>リソース ファイル\シェーダー</Filter>
+    </None>
+  </ItemGroup>
 </Project>
