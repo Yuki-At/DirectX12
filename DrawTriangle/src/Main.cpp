@@ -364,7 +364,7 @@ HRESULT InitResource() {
 
         // Vertex Buffer View
         vbView.BufferLocation = vertexBuffer->GetGPUVirtualAddress();
-        vbView.SizeInBytes = sizeof(vertexBuffer);
+        vbView.SizeInBytes = sizeof(vertices);
         vbView.StrideInBytes = sizeof(XMFLOAT3);
     }
 
@@ -444,7 +444,7 @@ D3D12_BLEND_DESC GetDefaultBlendDesc() {
 D3D12_RASTERIZER_DESC GetDefaultRasterizerDesc() {
     D3D12_RASTERIZER_DESC desc;
     desc.FillMode = D3D12_FILL_MODE_SOLID;
-    desc.CullMode = D3D12_CULL_MODE_FRONT;
+    desc.CullMode = D3D12_CULL_MODE_BACK;
     desc.FrontCounterClockwise = false;
     desc.DepthBias = D3D12_DEFAULT_DEPTH_BIAS;
     desc.DepthBiasClamp = D3D12_DEFAULT_DEPTH_BIAS_CLAMP;
