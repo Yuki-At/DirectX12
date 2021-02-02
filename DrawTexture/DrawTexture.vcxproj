@@ -40,7 +40,9 @@
     </FxCompile>
   </ItemGroup>
   <ItemGroup>
-    <None Include="src\Header.hlsli" />
+    <None Include="src\Header.hlsli">
+      <FileType>Document</FileType>
+    </None>
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>16.0</VCProjectVersion>

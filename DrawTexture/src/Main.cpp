@@ -24,9 +24,15 @@ struct Vertex {
     XMFLOAT2 uv;
 };
 
+struct Color {
+    UINT8 r, g, b, a;
+};
+
 constexpr UINT Width = 640;
 constexpr UINT Height = 480;
 constexpr UINT FrameCount = 2;
+constexpr UINT TextureWidth = 256;
+constexpr UINT TextureHeight = 256;
 
 // Win32 objects.
 HINSTANCE hInstance;
@@ -51,6 +57,7 @@ ComPtr<ID3D12Resource> vertexBuffer;
 ComPtr<ID3D12Resource> indexBuffer;
 D3D12_VERTEX_BUFFER_VIEW vbView;
 D3D12_INDEX_BUFFER_VIEW ibView;
+ComPtr<ID3D12Resource> texture;
 
 // Synchronization objects.
 ComPtr<ID3D12Fence> fence;
@@ -411,6 +418,57 @@ HRESULT InitResource() {
         ibView.BufferLocation = indexBuffer->GetGPUVirtualAddress();
         ibView.SizeInBytes = sizeof(indices);
         ibView.Format = DXGI_FORMAT_R16_UINT;
+    }
+
+    // Texture
+    {
+        Color textureData[TextureWidth * TextureHeight];
+
+        // Generate texture data.
+        srand((unsigned int) textureData);
+        for (Color &color : textureData) {
+            color.r = rand() % 256;
+            color.g = rand() % 256;
+            color.b = rand() % 256;
+            color.a = 256;
+        }
+
+        D3D12_HEAP_PROPERTIES properties;
+        properties.Type                 = D3D12_HEAP_TYPE_CUSTOM;
+        properties.CPUPageProperty      = D3D12_CPU_PAGE_PROPERTY_WRITE_BACK;
+        properties.MemoryPoolPreference = D3D12_MEMORY_POOL_L0;
+        properties.CreationNodeMask     = 0;
+        properties.VisibleNodeMask      = 0;
+
+        D3D12_RESOURCE_DESC desc;
+        desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        desc.Alignment = 0;
+        desc.Width = TextureWidth;
+        desc.Height = TextureHeight;
+        desc.DepthOrArraySize = 1;
+        desc.MipLevels = 1;
+        desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        desc.SampleDesc.Count = 1;
+        desc.SampleDesc.Quality = 0;
+        desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+        desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+        ThrowIfFailed(device->CreateCommittedResource(
+            &properties,
+            D3D12_HEAP_FLAG_NONE,
+            &desc,
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+            nullptr,
+            IID_PPV_ARGS(&texture)
+        ));
+
+        ThrowIfFailed(texture->WriteToSubresource(
+            0, nullptr, textureData,
+            sizeof(Color) * TextureWidth,
+            sizeof(Color) * TextureWidth * TextureHeight
+        ));
+
+
     }
 
     return S_OK;
