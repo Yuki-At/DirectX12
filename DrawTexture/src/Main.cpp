@@ -59,6 +59,7 @@ ComPtr<ID3D12Resource> indexBuffer;
 D3D12_VERTEX_BUFFER_VIEW vbView;
 D3D12_INDEX_BUFFER_VIEW ibView;
 ComPtr<ID3D12Resource> texture;
+Color textureData[TextureWidth * TextureHeight];
 
 // Synchronization objects.
 ComPtr<ID3D12Fence> fence;
@@ -264,18 +265,6 @@ HRESULT InitDirectX() {
         ThrowIfFailed(device->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&srvHeap)));
     }
 
-    // Shader Resource View (SRV)
-    {
-        D3D12_SHADER_RESOURCE_VIEW_DESC desc;
-        desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-        desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-        desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-        desc.Texture2D = { };
-        desc.Texture2D.MipLevels = 1;
-
-        device->CreateShaderResourceView(texture.Get(), &desc, srvHeap->GetCPUDescriptorHandleForHeapStart());
-    }
-
     // Command Allocator
     ThrowIfFailed(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&commandAllocator)));
 
@@ -299,7 +288,7 @@ HRESULT InitDirectX() {
         rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
         D3D12_STATIC_SAMPLER_DESC samplers[1];
-        samplers[0].Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+        samplers[0].Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR; // 線形補間を用いてテクスチャフィルタリングする
         samplers[0].AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
         samplers[0].AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
         samplers[0].AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
@@ -474,15 +463,13 @@ HRESULT InitResource() {
 
     // Texture
     {
-        Color textureData[TextureWidth * TextureHeight];
-
         // Generate texture data.
         srand((unsigned int) textureData);
         for (Color &color : textureData) {
             color.r = rand() % 256;
             color.g = rand() % 256;
             color.b = rand() % 256;
-            color.a = 256;
+            color.a = 0xff;
         }
 
         D3D12_HEAP_PROPERTIES properties;
@@ -519,6 +506,19 @@ HRESULT InitResource() {
             sizeof(Color) * TextureWidth,
             sizeof(Color) * TextureWidth * TextureHeight
         ));
+
+        // Shader Resource View (SRV)
+        {
+            D3D12_SHADER_RESOURCE_VIEW_DESC desc;
+            desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+            desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+            desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+            desc.Texture2D = { };
+            desc.Texture2D.MipLevels = 1;
+
+            device->CreateShaderResourceView(texture.Get(), &desc, srvHeap->GetCPUDescriptorHandleForHeapStart());
+        }
+
     }
 
     return S_OK;
@@ -532,6 +532,10 @@ void OnRender() {
     ThrowIfFailed(commandList->Reset(commandAllocator.Get(), pipelineState.Get()));
 
     commandList->SetGraphicsRootSignature(rootSignature.Get());
+    ID3D12DescriptorHeap *heaps[] = { srvHeap.Get() };
+    commandList->SetDescriptorHeaps(_countof(heaps), heaps);
+    commandList->SetGraphicsRootDescriptorTable(0, srvHeap->GetGPUDescriptorHandleForHeapStart());
+
     commandList->RSSetViewports(1, &viewport);
     commandList->RSSetScissorRects(1, &scissorRect);
 

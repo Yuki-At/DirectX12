@@ -2,9 +2,9 @@
 #include "Header.hlsli"
 
 PSInput Main(float4 position : POSITION, float2 uv : TEXCOORD) {
-    PSInput output;
-    output.position = position;
-    output.uv = uv;
+    PSInput result;
+    result.position = position;
+    result.uv = uv;
 
-    return output;
+    return result;
 }
