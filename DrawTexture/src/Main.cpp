@@ -45,6 +45,7 @@ ComPtr<IDXGISwapChain4> swapChain;
 ComPtr<ID3D12DescriptorHeap> rtvHeap;
 UINT rtvDescriptorSize;
 ComPtr<ID3D12Resource> renderTargets[FrameCount];
+ComPtr<ID3D12DescriptorHeap> srvHeap;
 ComPtr<ID3D12CommandAllocator> commandAllocator;
 ComPtr<ID3D12GraphicsCommandList> commandList;
 ComPtr<ID3D12RootSignature> rootSignature;
@@ -250,6 +251,29 @@ HRESULT InitDirectX() {
 
             rtvHandle.ptr += rtvDescriptorSize;
         }
+    }
+
+    // Descriptor Heap for SRV
+    {
+        D3D12_DESCRIPTOR_HEAP_DESC desc;
+        desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+        desc.NumDescriptors = 1;
+        desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+        desc.NodeMask = 0;
+
+        ThrowIfFailed(device->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&srvHeap)));
+    }
+
+    // Shader Resource View (SRV)
+    {
+        D3D12_SHADER_RESOURCE_VIEW_DESC desc;
+        desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        desc.Texture2D = { };
+        desc.Texture2D.MipLevels = 1;
+
+        device->CreateShaderResourceView(texture.Get(), &desc, srvHeap->GetCPUDescriptorHandleForHeapStart());
     }
 
     // Command Allocator
@@ -467,8 +491,6 @@ HRESULT InitResource() {
             sizeof(Color) * TextureWidth,
             sizeof(Color) * TextureWidth * TextureHeight
         ));
-
-
     }
 
     return S_OK;
