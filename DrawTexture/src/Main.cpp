@@ -25,15 +25,9 @@ struct Vertex {
     XMFLOAT2 uv;
 };
 
-struct Color {
-    UINT8 r, g, b, a;
-};
-
 constexpr UINT Width = 640;
 constexpr UINT Height = 480;
 constexpr UINT FrameCount = 2;
-constexpr UINT TextureWidth = 256;
-constexpr UINT TextureHeight = 256;
 
 // Win32 objects.
 HINSTANCE hInstance;
@@ -60,7 +54,6 @@ ComPtr<ID3D12Resource> indexBuffer;
 D3D12_VERTEX_BUFFER_VIEW vbView;
 D3D12_INDEX_BUFFER_VIEW ibView;
 ComPtr<ID3D12Resource> texture;
-Color textureData[TextureWidth * TextureHeight];
 
 // Synchronization objects.
 ComPtr<ID3D12Fence> fence;
@@ -88,6 +81,7 @@ D3D12_RESOURCE_BARRIER &GetTransitionBarrier(
     D3D12_RESOURCE_STATES after,
     UINT subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
     D3D12_RESOURCE_BARRIER_FLAGS flags = D3D12_RESOURCE_BARRIER_FLAG_NONE);
+HRESULT LoadImageFromFile(LPCTSTR file, TexMetadata &metadata, Image &image);
 LRESULT CALLBACK WindowProcedure(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int nCmdShow) {
@@ -464,14 +458,11 @@ HRESULT InitResource() {
 
     // Texture
     {
-        // Generate texture data.
-        srand((unsigned int) textureData);
-        for (Color &color : textureData) {
-            color.r = rand() % 256;
-            color.g = rand() % 256;
-            color.b = rand() % 256;
-            color.a = 0xff;
-        }
+        TexMetadata metadata;
+        ScratchImage scratchImage;
+        ThrowIfFailed(LoadFromWICFile(TEXT("assets/icon.jpg"), WIC_FLAGS_NONE, &metadata, scratchImage));
+
+        const Image *image = scratchImage.GetImage(0, 0, 0);
 
         D3D12_HEAP_PROPERTIES properties;
         properties.Type                 = D3D12_HEAP_TYPE_CUSTOM;
@@ -481,17 +472,17 @@ HRESULT InitResource() {
         properties.VisibleNodeMask      = 0;
 
         D3D12_RESOURCE_DESC desc;
-        desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-        desc.Alignment = 0;
-        desc.Width = TextureWidth;
-        desc.Height = TextureHeight;
-        desc.DepthOrArraySize = 1;
-        desc.MipLevels = 1;
-        desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-        desc.SampleDesc.Count = 1;
+        desc.Dimension          = D3D12_RESOURCE_DIMENSION(metadata.dimension);
+        desc.Alignment          = 0;
+        desc.Width              = (UINT64) metadata.width;
+        desc.Height             = (UINT) metadata.height;
+        desc.DepthOrArraySize   = (UINT16) metadata.arraySize;
+        desc.MipLevels          = (UINT16) metadata.mipLevels;
+        desc.Format             = DXGI_FORMAT_R8G8B8A8_UNORM;
+        desc.SampleDesc.Count   = 1;
         desc.SampleDesc.Quality = 0;
-        desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-        desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+        desc.Layout             = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+        desc.Flags              = D3D12_RESOURCE_FLAG_NONE;
 
         ThrowIfFailed(device->CreateCommittedResource(
             &properties,
@@ -503,9 +494,10 @@ HRESULT InitResource() {
         ));
 
         ThrowIfFailed(texture->WriteToSubresource(
-            0, nullptr, textureData,
-            sizeof(Color) * TextureWidth,
-            sizeof(Color) * TextureWidth * TextureHeight
+            0, nullptr,
+            image->pixels,
+            (UINT) image->rowPitch,
+            (UINT) image->slicePitch
         ));
 
         // Shader Resource View (SRV)
@@ -519,7 +511,6 @@ HRESULT InitResource() {
 
             device->CreateShaderResourceView(texture.Get(), &desc, srvHeap->GetCPUDescriptorHandleForHeapStart());
         }
-
     }
 
     return S_OK;
