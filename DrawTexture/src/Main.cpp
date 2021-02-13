@@ -130,7 +130,7 @@ HRESULT InitWindow() {
     }
 
     hWindow = CreateWindow(
-        WindowClassName, TEXT("ClearScreen - DirectX12"),
+        WindowClassName, TEXT("DrawTexture - DirectX12"),
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
         CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
         nullptr, nullptr, hInstance, nullptr
