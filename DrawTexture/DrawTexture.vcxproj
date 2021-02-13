@@ -40,6 +40,7 @@
     </FxCompile>
   </ItemGroup>
   <ItemGroup>
+    <None Include="README.md" />
     <None Include="src\Header.hlsli">
       <FileType>Document</FileType>
     </None>

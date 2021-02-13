@@ -34,5 +34,6 @@
     <None Include="src\Header.hlsli">
       <Filter>リソース ファイル\シェーダー</Filter>
     </None>
+    <None Include="README.md" />
   </ItemGroup>
 </Project>
