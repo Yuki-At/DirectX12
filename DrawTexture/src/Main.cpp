@@ -458,27 +458,62 @@ HRESULT InitResource() {
 
     // Texture
     {
+        // テクスチャの読み込み
         TexMetadata metadata;
         ScratchImage scratchImage;
         ThrowIfFailed(LoadFromWICFile(TEXT("assets/icon.jpg"), WIC_FLAGS_NONE, &metadata, scratchImage));
 
         const Image *image = scratchImage.GetImage(0, 0, 0);
 
+        // アップロードバッファ用リソースの作成
         D3D12_HEAP_PROPERTIES properties;
-        properties.Type                 = D3D12_HEAP_TYPE_CUSTOM;
-        properties.CPUPageProperty      = D3D12_CPU_PAGE_PROPERTY_WRITE_BACK;
-        properties.MemoryPoolPreference = D3D12_MEMORY_POOL_L0;
+        properties.Type                 = D3D12_HEAP_TYPE_UPLOAD;
+        properties.CPUPageProperty      = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
+        properties.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
         properties.CreationNodeMask     = 0;
         properties.VisibleNodeMask      = 0;
 
         D3D12_RESOURCE_DESC desc;
+        desc.Dimension          = D3D12_RESOURCE_DIMENSION_BUFFER;
+        desc.Alignment          = 0;
+        desc.Width              = image->slicePitch;
+        desc.Height             = 1;
+        desc.DepthOrArraySize   = 1;
+        desc.MipLevels          = 1;
+        desc.Format             = DXGI_FORMAT_UNKNOWN;
+        desc.SampleDesc.Count   = 1;
+        desc.SampleDesc.Quality = 0;
+        desc.Layout             = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        desc.Flags              = D3D12_RESOURCE_FLAG_NONE;
+
+        ComPtr<ID3D12Resource> uploadHeap;
+        ThrowIfFailed(device->CreateCommittedResource(
+            &properties,
+            D3D12_HEAP_FLAG_NONE,
+            &desc,
+            D3D12_RESOURCE_STATE_GENERIC_READ,
+            nullptr,
+            IID_PPV_ARGS(&uploadHeap)));
+
+        void *buffer;
+        ThrowIfFailed(uploadHeap->Map(0, nullptr, &buffer));
+        memcpy(buffer, image->pixels, image->slicePitch);
+        uploadHeap->Unmap(0, nullptr);
+
+        // テクスチャリソースの作成
+        properties.Type                 = D3D12_HEAP_TYPE_DEFAULT;
+        properties.CPUPageProperty      = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
+        properties.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+        properties.CreationNodeMask     = 0;
+        properties.VisibleNodeMask      = 0;
+
         desc.Dimension          = D3D12_RESOURCE_DIMENSION(metadata.dimension);
         desc.Alignment          = 0;
         desc.Width              = (UINT64) metadata.width;
         desc.Height             = (UINT) metadata.height;
         desc.DepthOrArraySize   = (UINT16) metadata.arraySize;
         desc.MipLevels          = (UINT16) metadata.mipLevels;
-        desc.Format             = DXGI_FORMAT_R8G8B8A8_UNORM;
+        desc.Format             = metadata.format;
         desc.SampleDesc.Count   = 1;
         desc.SampleDesc.Quality = 0;
         desc.Layout             = D3D12_TEXTURE_LAYOUT_UNKNOWN;
@@ -488,26 +523,48 @@ HRESULT InitResource() {
             &properties,
             D3D12_HEAP_FLAG_NONE,
             &desc,
-            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+            D3D12_RESOURCE_STATE_COPY_DEST,
             nullptr,
-            IID_PPV_ARGS(&texture)
-        ));
+            IID_PPV_ARGS(&texture)));
 
-        ThrowIfFailed(texture->WriteToSubresource(
-            0, nullptr,
-            image->pixels,
-            (UINT) image->rowPitch,
-            (UINT) image->slicePitch
-        ));
+        // コピー
+        D3D12_TEXTURE_COPY_LOCATION src;
+        src.pResource              = uploadHeap.Get();
+        src.Type                   = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        src.PlacedFootprint.Offset = 0;
+        auto &footprint = src.PlacedFootprint.Footprint;
+        footprint.Format   = metadata.format;
+        footprint.Width    = metadata.width;
+        footprint.Height   = metadata.height;
+        footprint.Depth    = metadata.depth;
+        footprint.RowPitch = image->rowPitch;
+
+        D3D12_TEXTURE_COPY_LOCATION dst;
+        dst.pResource = texture.Get();
+        dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        dst.SubresourceIndex = 0;
+
+        ThrowIfFailed(commandAllocator->Reset());
+        ThrowIfFailed(commandList->Reset(commandAllocator.Get(), pipelineState.Get()));
+
+        commandList->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+        D3D12_RESOURCE_BARRIER barrier;
+        commandList->ResourceBarrier(1, &GetTransitionBarrier(barrier, texture.Get(), D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
+        ThrowIfFailed(commandList->Close());
+
+        ID3D12CommandList *commandLists[] = { commandList.Get() };
+        commandQueue->ExecuteCommandLists(_countof(commandLists), commandLists);
+
+        WaitForPrevFrame();
 
         // Shader Resource View (SRV)
         {
             D3D12_SHADER_RESOURCE_VIEW_DESC desc;
-            desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-            desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+            desc.Format                  = DXGI_FORMAT_R8G8B8A8_UNORM;
+            desc.ViewDimension           = D3D12_SRV_DIMENSION_TEXTURE2D;
             desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-            desc.Texture2D = { };
-            desc.Texture2D.MipLevels = 1;
+            desc.Texture2D               = { };
+            desc.Texture2D.MipLevels     = 1;
 
             device->CreateShaderResourceView(texture.Get(), &desc, srvHeap->GetCPUDescriptorHandleForHeapStart());
         }
